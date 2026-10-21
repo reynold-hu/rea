@@ -99,7 +99,7 @@ export const expandPrefix = (
           path: joinPath(directoryOf(context.executable), rest),
         };
   }
-  if (raw.startsWith("/")) {
+  if (isAbsoluteDylibPath(raw)) {
     const lookupPath = context.rootRelativePath(raw);
     return lookupPath === undefined
       ? { scope: "outside", path: raw }
@@ -107,6 +107,15 @@ export const expandPrefix = (
   }
   return { scope: "undetermined", path: raw };
 };
+
+/**
+ * Dyld paths are POSIX, but readers on Windows also receive native absolute
+ * spellings for the selected local root. Recognize both without host imports.
+ */
+const isAbsoluteDylibPath = (path: string): boolean =>
+  path.startsWith("/") ||
+  /^[A-Za-z]:[\\/]/u.test(path) ||
+  path.startsWith("\\\\");
 
 /**
  * Slices a process may load, best first, following dyld's graded

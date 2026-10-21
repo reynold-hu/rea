@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { expandPrefix } from "./dyldPaths.js";
 import {
   traceDylibLoading,
   type DylibTreeEntry,
@@ -1580,3 +1581,34 @@ it.each([
     }
   },
 );
+
+describe("dyld absolute path spelling", () => {
+  it("recognizes native absolute spellings on every host", () => {
+    const context = {
+      ownerDirectory: "Contents/MacOS",
+      executable: "Contents/MacOS/App",
+      rootRelativePath: (absolutePath: string): string | undefined =>
+        absolutePath === "C:\\bundle\\Frameworks\\lib.dylib"
+          ? "Frameworks/lib.dylib"
+          : undefined,
+    };
+
+    expect(expandPrefix("C:\\bundle\\Frameworks\\lib.dylib", context)).toEqual({
+      scope: "target",
+      path: "C:\\bundle\\Frameworks\\lib.dylib",
+      lookupPath: "Frameworks/lib.dylib",
+    });
+    expect(expandPrefix("C:/bundle/Frameworks/lib.dylib", context)).toEqual({
+      scope: "outside",
+      path: "C:/bundle/Frameworks/lib.dylib",
+    });
+    expect(expandPrefix("\\\\server\\share\\lib.dylib", context)).toEqual({
+      scope: "outside",
+      path: "\\\\server\\share\\lib.dylib",
+    });
+    expect(expandPrefix("relative/lib.dylib", context)).toEqual({
+      scope: "undetermined",
+      path: "relative/lib.dylib",
+    });
+  });
+});

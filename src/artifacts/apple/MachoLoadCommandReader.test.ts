@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { mkdir, realpath, rename, symlink, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -256,14 +256,13 @@ describe("absolute dyld candidate paths at the filesystem reader boundary", () =
       const canonicalRoot = await realpath(root);
       const bridgePath = "Frameworks/libBridge.dylib";
       const leafPath = "Frameworks/libLeaf.dylib";
-      const bridgeAbsolute = `${canonicalRoot}/${bridgePath}`;
+      const bridgeAbsolute = join(canonicalRoot, bridgePath);
+      const rpathBase = join(canonicalRoot, "Frameworks");
       const leafName = "@loader_path/libLeaf.dylib";
       const executable = machoImage({
         commands: [
           buildVersionCommand(1),
-          ...(kind === "rpath"
-            ? [rpathCommand(`${canonicalRoot}/Frameworks`)]
-            : []),
+          ...(kind === "rpath" ? [rpathCommand(rpathBase)] : []),
           dylibCommand(
             LC.LOAD_DYLIB,
             kind === "rpath" ? "@rpath/libBridge.dylib" : bridgeAbsolute,
@@ -299,10 +298,11 @@ describe("absolute dyld candidate paths at the filesystem reader boundary", () =
           kind === "rpath" ? "@rpath/libBridge.dylib" : bridgeAbsolute,
         candidates: [
           {
-            path: bridgeAbsolute,
-            ...(kind === "rpath"
-              ? { rpath: `${canonicalRoot}/Frameworks` }
-              : {}),
+            path:
+              kind === "rpath"
+                ? `${rpathBase}/libBridge.dylib`
+                : bridgeAbsolute,
+            ...(kind === "rpath" ? { rpath: rpathBase } : {}),
             outcome: "resolved",
             resolved_path: bridgePath,
           },
@@ -331,7 +331,10 @@ describe("absolute dyld candidate paths at the filesystem reader boundary", () =
       commands: [
         buildVersionCommand(1),
         dylibCommand(LC.LOAD_DYLIB, "/usr/lib/libSystem.B.dylib"),
-        dylibCommand(LC.LOAD_DYLIB, `${canonicalRoot}/../outside.dylib`),
+        dylibCommand(
+          LC.LOAD_DYLIB,
+          `${canonicalRoot}${sep}..${sep}outside.dylib`,
+        ),
         dylibCommand(
           LC.LOAD_DYLIB,
           `file://${canonicalRoot}/Frameworks/libBridge.dylib`,
@@ -383,7 +386,7 @@ describe("absolute dyld candidate traversal", () => {
     );
     const aliasRoot = join(root, "bundle-alias");
     const bridgePath = "Frameworks/libBridge.dylib";
-    const bridgeAbsolute = `${aliasRoot}/${bridgePath}`;
+    const bridgeAbsolute = join(aliasRoot, bridgePath);
     const executable = machoImage({
       commands: [
         buildVersionCommand(1),
@@ -394,14 +397,18 @@ describe("absolute dyld candidate traversal", () => {
       fileType: FILE_TYPE.dylib,
       commands: [buildVersionCommand(1)],
     });
-    await symlink(".", aliasRoot);
+    await symlink(
+      ".",
+      aliasRoot,
+      process.platform === "win32" ? "dir" : undefined,
+    );
     await mkdir(join(root, "Frameworks"), { recursive: true });
     await writeFile(join(root, "App"), executable);
     await writeFile(join(root, bridgePath), bridge);
 
     const trace = await traceDylibResolution({
       rootPath: aliasRoot,
-      targetPath: `${aliasRoot}/App`,
+      targetPath: join(aliasRoot, "App"),
       targetSha256: createHash("sha256").update(executable).digest("hex"),
       enumerateRoots: false,
       parameters: { roots: ["App"] },
